@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { HistoryDetailScreen } from "@/components/screens/history-detail-screen";
 export function generateStaticParams() {
-  return [];
+  return [{ id: "_" }];
 }
 
 export default function Page({

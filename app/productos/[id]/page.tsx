@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { ProductDetailScreen } from "@/components/screens/product-detail-screen";
 export function generateStaticParams() {
-  return [];
+  return [{ id: "_" }];
 }
 
 export default function Page({
