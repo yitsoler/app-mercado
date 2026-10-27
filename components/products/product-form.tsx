@@ -7,17 +7,21 @@ import type { CategoryId, Product, ProductDraft, UnitId } from "@/lib/types";
 
 export function ProductForm({
   initial,
+  presetCategory,
   submitLabel,
   onSubmit,
   onCancel,
 }: {
   initial?: Product;
+  presetCategory?: CategoryId;
   submitLabel: string;
   onSubmit: (draft: ProductDraft) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
-  const [categoryId, setCategoryId] = useState<CategoryId>(initial?.categoryId ?? "frutas");
+  const [categoryId, setCategoryId] = useState<CategoryId>(
+    initial?.categoryId ?? presetCategory ?? "frutas",
+  );
   const [note, setNote] = useState(initial?.note ?? "");
   const [habitualQuantity, setHabitualQuantity] = useState(String(initial?.habitualQuantity ?? 1));
   const [unit, setUnit] = useState<UnitId>(initial?.unit ?? "unidades");
@@ -39,7 +43,7 @@ export function ProductForm({
         }
         onSubmit({
           name: name.trim(),
-          categoryId,
+          categoryId: presetCategory ?? categoryId,
           note: note.trim(),
           habitualQuantity: quantity,
           unit,
@@ -49,18 +53,20 @@ export function ProductForm({
       <Field label="Nombre">
         <TextInput onChange={(event) => setName(event.target.value)} value={name} />
       </Field>
-      <Field label="Categoría">
-        <SelectInput
-          onChange={(event) => setCategoryId(event.target.value as CategoryId)}
-          value={categoryId}
-        >
-          {CATEGORIES.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.label}
-            </option>
-          ))}
-        </SelectInput>
-      </Field>
+      {presetCategory ? null : (
+        <Field label="Categoría">
+          <SelectInput
+            onChange={(event) => setCategoryId(event.target.value as CategoryId)}
+            value={categoryId}
+          >
+            {CATEGORIES.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.label}
+              </option>
+            ))}
+          </SelectInput>
+        </Field>
+      )}
       <Field label="Nota">
         <TextInput
           onChange={(event) => setNote(event.target.value)}

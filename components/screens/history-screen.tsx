@@ -3,25 +3,25 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Screen, TopBar } from "@/components/layout/app-shell";
-import { useAppState } from "@/components/providers/app-provider";
-import { Icon } from "@/components/ui/icon";
+import { useHistoryTrips, useAppState } from "@/components/providers/app-provider";
 import { ChipScroller } from "@/components/ui/chip-scroller";
 import { EmptyState } from "@/components/ui/primitives";
 import { monthOption } from "@/lib/catalog";
-import { historyProductCount, historyTotal } from "@/lib/data";
+import { tripProductCount, tripStoreCount, tripTotal } from "@/lib/data";
 import { formatCOP, formatLongDate, monthKey } from "@/lib/format";
 
 export function HistoryScreen() {
-  const { history, currentMonth } = useAppState();
+  const { currentMonth } = useAppState();
+  const trips = useHistoryTrips();
   const [filter, setFilter] = useState("todos");
   const months = useMemo(() => {
-    const keys = new Set(history.map((entry) => monthKey(entry.date)));
+    const keys = new Set(trips.map((entry) => monthKey(entry.date)));
     if (currentMonth) keys.add(currentMonth);
     return [...keys].toSorted().toReversed().map((key) => monthOption(key));
-  }, [currentMonth, history]);
+  }, [currentMonth, trips]);
   const filtered = useMemo(
-    () => (filter === "todos" ? history : history.filter((entry) => monthKey(entry.date) === filter)),
-    [filter, history],
+    () => (filter === "todos" ? trips : trips.filter((entry) => monthKey(entry.date) === filter)),
+    [filter, trips],
   );
 
   return (
@@ -31,7 +31,7 @@ export function HistoryScreen() {
         <section>
           <h1 className="text-headline-md font-bold text-on-surface">Historial</h1>
           <p className="text-body-sm text-on-surface-variant">
-            Cada visita al supermercado, con fecha, lugar y total.
+            Cada mercado finalizado, con fecha y total. El detalle muestra las tiendas.
           </p>
         </section>
 
@@ -65,33 +65,38 @@ export function HistoryScreen() {
 
         {filtered.length === 0 ? (
           <EmptyState
-            description="Cuando termines una compra, el recibo aparece aquí."
+            description="Cuando finalices un mercado, aparece aquí con su fecha y total."
             icon="receipt_long"
             title="No hay compras"
           />
         ) : (
           <ul className="divide-y divide-outline-variant/30 overflow-hidden rounded-2xl border border-outline-variant/40 bg-surface-container-lowest">
-            {filtered.map((entry) => (
-              <li key={entry.id}>
-                <Link
-                  className="flex items-center justify-between gap-3 px-4 py-3.5"
-                  href={`/historial/${entry.id}`}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-body-md font-semibold text-on-surface">{entry.store}</p>
+            {filtered.map((trip) => {
+              const stores = tripStoreCount(trip);
+              const products = tripProductCount(trip);
+              return (
+                <li className="flex items-center gap-3 px-4 py-3.5" key={trip.id}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body-md font-semibold text-on-surface">
+                      {formatLongDate(trip.date)}
+                    </p>
                     <p className="text-label-sm text-on-surface-variant">
-                      {formatLongDate(entry.date)} · {historyProductCount(entry)} productos
+                      {stores} {stores === 1 ? "tienda" : "tiendas"} · {products}{" "}
+                      {products === 1 ? "producto" : "productos"}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-label-lg font-bold text-primary tabular">
-                      {formatCOP(historyTotal(entry))}
-                    </span>
-                    <Icon className="text-outline" name="chevron_right" />
-                  </div>
-                </Link>
-              </li>
-            ))}
+                  <span className="text-label-lg font-bold text-primary tabular">
+                    {formatCOP(tripTotal(trip))}
+                  </span>
+                  <Link
+                    className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-full bg-primary px-4 text-label-md font-semibold text-on-primary"
+                    href={`/historial/${trip.id}`}
+                  >
+                    Detalle
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </main>

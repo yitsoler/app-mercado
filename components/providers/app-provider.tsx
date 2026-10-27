@@ -18,7 +18,9 @@ import {
 import { currentMonthKey } from "@/lib/format";
 import { clearHouseholdCache } from "@/lib/household";
 import {
-  persistFinishMarket,
+  persistAddMarketItems,
+  persistEndMarket,
+  persistSaveStoreVisit,
   persistMarketItem,
   persistMarketStore,
   persistProduct,
@@ -33,6 +35,7 @@ import {
 } from "@/lib/mutations";
 import { getSupabase } from "@/lib/supabase/client";
 import { loadHouseholdState } from "@/lib/queries";
+import { groupHistoryTrips } from "@/lib/data";
 import { deriveMonthSnapshots, monthSummaryFromHistory } from "@/lib/summary";
 import type {
   ActiveMarket,
@@ -51,6 +54,8 @@ type AppContextValue = {
   selectedIds: string[];
   stores: Store[];
   userName: string;
+  userEmail: string;
+  userRole: "owner" | "member";
   market: ActiveMarket | null;
   history: HistoryMarket[];
   month: string;
@@ -76,12 +81,13 @@ type AppContextValue = {
     items: Array<Pick<MarketItem, "productId" | "quantity">>,
     store: string,
   ) => Promise<boolean>;
+  endMarket: () => Promise<boolean>;
   updateMarketStore: (store: string) => void;
   updateMarketQuantity: (productId: string, quantity: number) => void;
   updateMarketPrice: (productId: string, unitPrice: number) => void;
   markPurchased: (productId: string) => void;
   returnToPending: (productId: string) => void;
-  finishMarket: () => Promise<boolean>;
+  finishMarket: () => Promise<"continue" | "done" | false>;
   getProduct: (id: string) => Product | undefined;
   createHouseholdUser: (input: {
     email: string;
@@ -109,6 +115,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [userName, setUserNameState] = useState("Usuario");
+  const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<"owner" | "member">("member");
   const [market, setMarket] = useState<ActiveMarket | null>(null);
   const [history, setHistory] = useState<HistoryMarket[]>([]);
   const [month, setMonth] = useState("");
@@ -135,6 +143,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setCurrentMonth(nowMonth);
         setMonth(nowMonth);
         setUserNameState(state.userName);
+        setUserEmail(state.userEmail);
+        setUserRole(state.userRole);
         setMonthlyBudget(state.monthlyBudget);
         setStores(state.stores);
         setProducts(state.products);
@@ -176,6 +186,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectedIds,
       stores,
       userName,
+      userEmail,
+      userRole,
       market,
       history,
       month,
@@ -200,12 +212,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
           );
           showToast(error instanceof Error ? error.message : "No se pudo actualizar la selección");
         });
+        if (next && market && !market.items.some((item) => item.productId === id)) {
+          const product = products.find((entry) => entry.id === id);
+          if (product) {
+            void persistAddMarketItems(market.id, [
+              {
+                productId: product.id,
+                quantity: product.habitualQuantity,
+                name: product.name,
+                unit: product.unit,
+                unitPrice: product.lastPrice ?? 0,
+              },
+            ])
+              .then((added) => {
+                setMarket((current) =>
+                  current ? { ...current, items: [...current.items, ...added] } : current,
+                );
+                showToast(`${product.name} se añadió a la compra de hoy.`);
+              })
+              .catch((error: unknown) => {
+                showToast(error instanceof Error ? error.message : "No se pudo añadir a la compra");
+              });
+          }
+        }
       },
       async addProduct(draft) {
         try {
           const product = await persistProduct(draft);
           setProducts((current) => [product, ...current]);
-          showToast("Producto agregado a tu lista habitual");
+          setSelectedIds((current) => (current.includes(product.id) ? current : [...current, product.id]));
+          void persistSelected(product.id, true).catch(() => undefined);
+          if (market && !market.items.some((item) => item.productId === product.id)) {
+            const added = await persistAddMarketItems(market.id, [
+              {
+                productId: product.id,
+                quantity: product.habitualQuantity,
+                name: product.name,
+                unit: product.unit,
+                unitPrice: product.lastPrice ?? 0,
+              },
+            ]);
+            setMarket((current) =>
+              current ? { ...current, items: [...current.items, ...added] } : current,
+            );
+            showToast(`${product.name} se añadió a la lista y a la compra de hoy.`);
+          } else {
+            showToast("Producto agregado a tu lista habitual");
+          }
           return product.id;
         } catch (error) {
           showToast(error instanceof Error ? error.message : "No se pudo agregar el producto");
@@ -323,40 +376,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       },
       async startMarket(items, store) {
-        const place = store.trim();
-        if (!place) {
-          showToast("Indica el lugar donde vas a realizar esta compra.");
-          return false;
-        }
+        const productById = new Map(products.map((product) => [product.id, product]));
+        const mapped = items.map((item) => {
+          const product = productById.get(item.productId);
+          return {
+            productId: item.productId,
+            quantity: item.quantity,
+            name: product?.name ?? "Producto",
+            unit: product?.unit ?? "unidades",
+            unitPrice: product?.lastPrice ?? 0,
+          };
+        });
         try {
+          if (market) {
+            const place = store.trim();
+            if (!place) {
+              showToast("Indica la siguiente tienda donde vas a comprar.");
+              return false;
+            }
+            let placeRow = stores.find((entry) => entry.name.toLowerCase() === place.toLowerCase());
+            if (!placeRow) {
+              placeRow = await persistStore(place);
+              setStores((current) => [...current, placeRow!]);
+            }
+            const existing = new Set(market.items.map((item) => item.productId));
+            const toAdd = mapped.filter((item) => !existing.has(item.productId));
+            if (toAdd.length === 0 && market.store === placeRow.name) {
+              showToast("Esos productos ya están en la compra de hoy.");
+              return true;
+            }
+            await persistMarketStore(market.id, placeRow.id, placeRow.name);
+            const added = toAdd.length > 0 ? await persistAddMarketItems(market.id, toAdd) : [];
+            setMarket({
+              ...market,
+              store: placeRow.name,
+              items: added.length > 0 ? [...market.items, ...added] : market.items,
+            });
+            showToast(
+              added.length > 0
+                ? `Productos agregados para ${placeRow.name}.`
+                : `Sigue mercando en ${placeRow.name}.`,
+            );
+            return true;
+          }
+          const place = store.trim();
+          if (!place) {
+            showToast("Indica el lugar donde vas a realizar esta compra.");
+            return false;
+          }
           let placeRow = stores.find((entry) => entry.name.toLowerCase() === place.toLowerCase());
           if (!placeRow) {
             placeRow = await persistStore(place);
             setStores((current) => [...current, placeRow!]);
           }
-          const productById = new Map(products.map((product) => [product.id, product]));
-          const started = await persistStartMarket(
-            items.map((item) => {
-              const product = productById.get(item.productId);
-              return {
-                productId: item.productId,
-                quantity: item.quantity,
-                name: product?.name ?? "Producto",
-                unit: product?.unit ?? "unidades",
-                unitPrice: product?.lastPrice ?? 0,
-              };
-            }),
-            placeRow,
-            market?.id,
-          );
+          const started = await persistStartMarket(mapped, placeRow);
           setMarket({
             id: started.id,
+            tripId: started.tripId,
             store: placeRow.name,
             date: started.date,
             status: "active",
             items: started.items,
           });
-          showToast("Mercado iniciado. Los productos siguen en tu lista habitual.");
+          showToast("Compra iniciada. Marca lo que compraste en este lugar.");
           return true;
         } catch (error) {
           showToast(error instanceof Error ? error.message : "No se pudo iniciar el mercado");
@@ -452,20 +534,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       async finishMarket() {
         if (!market) return false;
-        const purchased = market.items.filter((item) => item.purchased);
-        if (purchased.length === 0) {
-          showToast("Marca al menos un producto comprado para finalizar.");
+        const place = market.store.trim();
+        if (!place) {
+          showToast("Indica la tienda donde compraste estos productos.");
           return false;
         }
+        const purchased = market.items.filter((item) => item.purchased);
+        if (purchased.length === 0) {
+          showToast("Marca al menos un producto comprado en esta tienda.");
+          return false;
+        }
+        const remaining = market.items.filter((item) => !item.purchased);
         const productById = new Map(products.map((product) => [product.id, product]));
         try {
-          const entry = await persistFinishMarket({
-            marketId: market.id,
-            store: market.store,
+          let placeRow = stores.find((entry) => entry.name.toLowerCase() === place.toLowerCase());
+          if (!placeRow) {
+            placeRow = await persistStore(place);
+            setStores((current) => [...current, placeRow!]);
+          }
+          const boughtIds = new Set(purchased.map((item) => item.productId));
+          const entry = await persistSaveStoreVisit({
+            activeMarketId: market.id,
+            tripId: market.tripId || market.id,
+            storeId: placeRow.id,
+            storeName: placeRow.name,
             date: market.date,
             purchased: purchased.map((item) => {
               const product = productById.get(item.productId);
               return {
+                id: item.id,
                 productId: item.productId,
                 name: product?.name ?? "Producto",
                 quantity: item.quantity,
@@ -475,6 +572,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }),
           });
           setHistory((current) => [entry, ...current]);
+          setSelectedIds((current) => current.filter((id) => !boughtIds.has(id)));
           setProducts((currentProducts) =>
             currentProducts.map((product) => {
               const bought = purchased.find((item) => item.productId === product.id);
@@ -483,11 +581,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ...product,
                 lastPrice: bought.unitPrice,
                 lastPurchasedAt: market.date,
-                lastStore: market.store,
+                lastStore: placeRow.name,
                 priceHistory: [
                   {
                     date: market.date,
-                    store: market.store,
+                    store: placeRow.name,
                     quantity: bought.quantity,
                     unitPrice: Math.round(bought.unitPrice / Math.max(bought.quantity, 1)),
                     total: bought.unitPrice,
@@ -497,8 +595,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
               };
             }),
           );
+          setMarket({
+            ...market,
+            store: "",
+            items: remaining,
+          });
+          showToast(
+            remaining.length === 0
+              ? `Guardado en ${placeRow.name}. Puedes seguir mercando en otra tienda.`
+              : `Guardado en ${placeRow.name}. Elige la siguiente tienda.`,
+          );
+          return "continue";
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "No se pudo guardar esta tienda");
+          return false;
+        }
+      },
+      async endMarket() {
+        if (!market) return false;
+        if (market.items.some((item) => item.purchased)) {
+          showToast("Guarda esta tienda antes de finalizar el mercado.");
+          return false;
+        }
+        try {
+          await persistEndMarket(market.id);
           setMarket(null);
-          showToast("Mercado finalizado y guardado.");
+          showToast("Mercado finalizado.");
           return true;
         } catch (error) {
           showToast(error instanceof Error ? error.message : "No se pudo finalizar el mercado");
@@ -584,7 +706,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectedIds,
       stores,
       toast,
+      userEmail,
       userName,
+      userRole,
     ],
   );
 
@@ -607,6 +731,14 @@ export function useMarketTotals() {
   const totalItems = market?.items.length ?? 0;
   const progress = totalItems === 0 ? 0 : Math.round((purchased.length / totalItems) * 100);
   return { purchased, pending, subtotal, totalItems, progress };
+}
+
+export function useHistoryTrips() {
+  const { history, market } = useAppState();
+  return useMemo(
+    () => groupHistoryTrips(history, market?.tripId),
+    [history, market?.tripId],
+  );
 }
 
 export function useMonthSummary(month: string) {

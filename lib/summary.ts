@@ -60,7 +60,7 @@ export function deriveMonthSnapshots(
       label: key,
       shortLabel: key,
       total,
-      markets: finished.length,
+      markets: new Set(finished.map((entry) => entry.tripId || entry.date)).size,
       budget,
       previousTotal,
       categories: categoryTotals(history, products, key),
@@ -83,7 +83,7 @@ export function monthSummaryFromHistory(
   return {
     finished,
     total,
-    markets: finished.length,
+    markets: new Set(finished.map((entry) => entry.tripId || entry.date)).size,
     budget,
     previous,
     productCount: finished.reduce((sum, entry) => sum + historyProductCount(entry), 0),

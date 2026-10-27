@@ -6,6 +6,8 @@ export type HouseholdState = {
   currentUserId: string;
   isAdmin: boolean;
   userName: string;
+  userEmail: string;
+  userRole: "owner" | "member";
   monthlyBudget: number;
   stores: Store[];
   products: Product[];
@@ -102,6 +104,8 @@ export async function loadHouseholdState(): Promise<HouseholdState | null> {
       user.email?.split("@")[0] ||
       householdRes.data?.display_name ||
       "Usuario",
+    userEmail: user.email ?? "",
+    userRole: memberRes.data?.role === "owner" ? "owner" : "member",
     monthlyBudget: householdRes.data?.monthly_budget ?? 950_000,
     stores: (storesRes.data ?? []).map((row) => ({ id: row.id, name: row.name })),
     products,
@@ -109,6 +113,7 @@ export async function loadHouseholdState(): Promise<HouseholdState | null> {
     market: active
       ? {
           id: active.id,
+          tripId: active.trip_id || active.id,
           store: active.store_name,
           date: active.market_date,
           status: "active",
@@ -125,6 +130,7 @@ export async function loadHouseholdState(): Promise<HouseholdState | null> {
       const items = itemsByMarket.get(row.id) ?? [];
       return {
         id: row.id,
+        tripId: row.trip_id || `dia-${row.market_date}`,
         store: row.store_name,
         date: row.market_date,
         payment: row.payment,

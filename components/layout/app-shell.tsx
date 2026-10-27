@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import { useAppState } from "@/components/providers/app-provider";
 import { Icon } from "@/components/ui/icon";
 import { UsersAdmin } from "@/components/layout/users-admin";
 import { Modal } from "@/components/ui/modal";
-import { PrimaryButton, TextInput } from "@/components/ui/primitives";
 
 const TABS = [
   { href: "/", label: "Inicio", icon: "home" },
@@ -124,9 +123,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       </div>
-      {pathname.startsWith("/preparar") || pathname.startsWith("/mercado") ? null : (
-        <SignOutButton className="fixed right-4 bottom-[4.75rem] left-4 z-50 mx-auto flex h-11 max-w-md items-center justify-center lg:hidden" />
-      )}
       <Suspense fallback={null}>
         <NavLinks variant="bottom" />
       </Suspense>
@@ -153,7 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : null}
 
       {toast ? (
-        <div className="pointer-events-none fixed bottom-32 left-1/2 z-[80] flex max-w-[340px] -translate-x-1/2 items-center gap-2 rounded-full bg-inverse-surface px-4 py-2.5 text-label-md text-inverse-on-surface shadow-lg">
+        <div className="pointer-events-none fixed bottom-20 left-1/2 z-[80] flex max-w-[340px] -translate-x-1/2 items-center gap-2 rounded-full bg-inverse-surface px-4 py-2.5 text-label-md text-inverse-on-surface shadow-lg">
           <Icon className="text-[18px] text-primary-fixed" name="check_circle" />
           <span>{toast.message}</span>
         </div>
@@ -173,20 +169,9 @@ export function TopBar({
   backHref?: string;
   trailing?: ReactNode;
 }) {
-  const {
-    setNotificationsOpen,
-    userName,
-    setUserName,
-    isAdmin,
-  } = useAppState();
-  const [editingName, setEditingName] = useState(false);
+  const { setNotificationsOpen, userName, userEmail, userRole, isAdmin, signOut } = useAppState();
   const [accountOpen, setAccountOpen] = useState(false);
-  const [draft, setDraft] = useState(userName);
   const initial = userName.trim().charAt(0).toUpperCase() || "?";
-
-  useEffect(() => {
-    if (editingName) setDraft(userName);
-  }, [editingName, userName]);
 
   return (
     <>
@@ -214,17 +199,7 @@ export function TopBar({
           {backHref ? (
             subtitle ? <p className="text-label-sm text-secondary">{subtitle}</p> : null
           ) : (
-            <button
-              className="flex max-w-full items-center gap-1 text-left"
-              onClick={() => {
-                setDraft(userName);
-                setEditingName(true);
-              }}
-              type="button"
-            >
-              <p className="truncate text-label-sm text-secondary">¡Hola, {userName}!</p>
-              <Icon className="text-[14px] text-outline" name="edit" />
-            </button>
+            <p className="truncate text-label-sm text-secondary">¡Hola, {userName}!</p>
           )}
           <p className="text-headline-sm font-bold tracking-tight text-primary">{title}</p>
         </div>
@@ -242,47 +217,33 @@ export function TopBar({
         </button>
       </div>
     </header>
-    {editingName ? (
-      <Modal onClose={() => setEditingName(false)} title="Tu nombre">
-        <p className="mb-3 text-body-sm text-on-surface-variant">
-          Así te saludará la app. Puedes cambiarlo cuando quieras.
-        </p>
-        <TextInput
-          aria-label="Tu nombre"
-          autoComplete="name"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void setUserName(draft).then(() => {
-                if (draft.trim()) setEditingName(false);
-              });
-            }
-          }}
-          placeholder="Ej. Camila"
-          value={draft}
-        />
-        <PrimaryButton
-          className="mt-4 w-full"
-          onClick={() => {
-            void setUserName(draft).then(() => {
-              if (draft.trim()) setEditingName(false);
-            });
-          }}
-        >
-          Guardar
-        </PrimaryButton>
-      </Modal>
-    ) : null}
     {accountOpen ? (
       <Modal onClose={() => setAccountOpen(false)} title="Tu cuenta">
+        <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-3.5">
+          <p className="text-label-lg font-semibold text-on-surface">{userName}</p>
+          <p className="mt-0.5 truncate text-body-sm text-on-surface-variant">
+            {userEmail || "Sin correo"}
+          </p>
+          <p className="mt-1 text-label-sm font-semibold text-primary">
+            {userRole === "owner" ? "Administrador" : "Familiar"}
+          </p>
+        </div>
         {isAdmin ? (
-          <UsersAdmin />
+          <div className="mt-5">
+            <UsersAdmin />
+          </div>
         ) : (
-          <p className="text-body-sm text-on-surface-variant">
+          <p className="mt-4 text-body-sm text-on-surface-variant">
             Si no puedes entrar, pide al administrador que te asigne una contraseña nueva.
           </p>
         )}
+        <button
+          className="mt-5 w-full text-label-md font-semibold text-on-surface-variant"
+          onClick={() => void signOut()}
+          type="button"
+        >
+          Cerrar sesión
+        </button>
       </Modal>
     ) : null}
     </>
@@ -299,7 +260,7 @@ export function Screen({
   padded?: boolean;
 }) {
   return (
-    <div className={`mx-auto flex min-h-dvh w-full max-w-3xl flex-col bg-surface pb-40 ${className}`}>
+    <div className={`mx-auto flex min-h-dvh w-full max-w-3xl flex-col bg-surface pb-28 ${className}`}>
       {padded ? <main className="flex-1 px-space-md pt-space-sm">{children}</main> : children}
     </div>
   );

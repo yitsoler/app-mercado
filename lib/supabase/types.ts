@@ -107,6 +107,7 @@ export type Database = {
           store_id: string | null;
           store_name: string;
           ticket: string | null;
+          trip_id: string | null;
           updated_at: string;
         };
         Insert: {
@@ -117,6 +118,7 @@ export type Database = {
           status: string;
           payment?: string;
           ticket?: string | null;
+          trip_id?: string | null;
           extra_items_count?: number;
           extra_items_total?: number;
         };
@@ -125,6 +127,7 @@ export type Database = {
           store_name?: string;
           status?: string;
           payment?: string;
+          trip_id?: string | null;
         };
         Relationships: [];
       };

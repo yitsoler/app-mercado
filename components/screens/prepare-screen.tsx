@@ -12,13 +12,13 @@ import { StorePicker } from "@/components/ui/store-picker";
 import { Checkbox, EmptyState, PrimaryButton, SearchField } from "@/components/ui/primitives";
 import { CATEGORIES, getCategory } from "@/lib/catalog";
 import { formatCOP, unitLabel } from "@/lib/format";
-import type { Product } from "@/lib/types";
+import type { CategoryId, Product } from "@/lib/types";
 
 export function PrepareScreen() {
   const router = useRouter();
   const { products, selectedIds, toggleSelected, addProduct, startMarket, market } = useAppState();
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creatingIn, setCreatingIn] = useState<CategoryId | null>(null);
   const [store, setStore] = useState(market?.store ?? "");
   const [storeError, setStoreError] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
@@ -33,7 +33,7 @@ export function PrepareScreen() {
   const grouped = CATEGORIES.map((category) => ({
     category,
     items: visible.filter((product) => product.categoryId === category.id),
-  })).filter((group) => group.items.length > 0);
+  })).filter((group) => (query.trim() ? group.items.length > 0 : true));
 
   const selectedProducts = products.filter((product) => selectedIds.includes(product.id));
   const estimate = selectedProducts.reduce((sum, product) => sum + (product.lastPrice || 0), 0);
@@ -42,26 +42,15 @@ export function PrepareScreen() {
     <Screen padded={false}>
       <TopBar backHref="/" subtitle="Selecciona lo que necesitas hoy" title="Preparar mercado" />
       <div className="px-space-md pt-3">
-        <div className="flex items-center gap-2">
-          <div className="flex-1">
-            <SearchField onChange={setQuery} placeholder="Buscar producto..." value={query} />
-          </div>
-          <button
-            className="flex h-12 shrink-0 items-center gap-1.5 rounded-xl border border-outline-variant/30 bg-surface-container-high px-3.5 text-label-md text-primary hover:bg-secondary-container"
-            onClick={() => setCreating(true)}
-            type="button"
-          >
-            <Icon className="text-[18px]" name="add" />
-            Producto
-          </button>
-        </div>
+        <SearchField onChange={setQuery} placeholder="Buscar producto..." value={query} />
       </div>
 
       <main className="flex flex-1 flex-col gap-5 px-space-md pt-3 pb-56">
         {market ? (
           <div className="rounded-2xl border border-outline-variant/40 bg-surface-container p-3.5 text-body-sm text-on-surface-variant">
-            Ya tienes un mercado en curso. Puedes continuar en Mi mercado o iniciar uno nuevo con
-            esta selección.
+            {store.trim()
+              ? `Añade lo que vas a comprar en ${store}. Lo que ya guardaste en otras tiendas no se pierde.`
+              : "Elige la siguiente tienda y marca lo que vas a comprar ahí. Lo que ya guardaste no se pierde."}
           </div>
         ) : null}
 
@@ -91,28 +80,42 @@ export function PrepareScreen() {
         ) : (
           grouped.map((group) => (
             <section className="flex flex-col gap-2.5" key={group.category.id}>
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <div className="flex min-w-0 items-center gap-2">
                   <Icon className="text-[19px] text-primary" name={group.category.icon} />
-                  <h2 className="text-[16px] font-bold text-on-surface">{group.category.label}</h2>
+                  <h2 className="truncate text-[16px] font-bold text-on-surface">{group.category.label}</h2>
+                  <span className="text-label-sm font-semibold text-outline">
+                    {group.items.filter((item) => selectedIds.includes(item.id)).length} seleccionados
+                  </span>
                 </div>
-                <span className="text-label-sm font-semibold text-outline">
-                  {group.items.filter((item) => selectedIds.includes(item.id)).length} seleccionados
-                </span>
+                <button
+                  className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-label-md font-semibold text-on-primary"
+                  onClick={() => setCreatingIn(group.category.id)}
+                  type="button"
+                >
+                  <Icon className="text-[18px]" name="add" />
+                  Agregar
+                </button>
               </div>
               <div className="flex flex-col gap-2">
-                {group.items.map((product) => (
-                  <PrepareRow
-                    key={product.id}
-                    onQuantity={(value) =>
-                      setQuantities((current) => ({ ...current, [product.id]: value }))
-                    }
-                    onToggle={() => toggleSelected(product.id)}
-                    product={product}
-                    quantity={quantities[product.id] ?? product.habitualQuantity}
-                    selected={selectedIds.includes(product.id)}
-                  />
-                ))}
+                {group.items.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-outline-variant/50 px-4 py-3 text-body-sm text-on-surface-variant">
+                    Aún no hay productos en {group.category.label.toLowerCase()}.
+                  </p>
+                ) : (
+                  group.items.map((product) => (
+                    <PrepareRow
+                      key={product.id}
+                      onQuantity={(value) =>
+                        setQuantities((current) => ({ ...current, [product.id]: value }))
+                      }
+                      onToggle={() => toggleSelected(product.id)}
+                      product={product}
+                      quantity={quantities[product.id] ?? product.habitualQuantity}
+                      selected={selectedIds.includes(product.id)}
+                    />
+                  ))
+                )}
               </div>
             </section>
           ))
@@ -122,6 +125,7 @@ export function PrepareScreen() {
       <div className="fixed right-0 bottom-16 left-0 z-40 mx-auto max-w-3xl border-t border-outline-variant/20 bg-surface/95 px-space-md pt-3 pb-6 shadow-[0_-4px_20px_rgba(39,48,41,0.06)] backdrop-blur-md lg:bottom-0">
         <StorePicker
           error={storeError}
+          label={market ? (store.trim() ? "Dónde compras ahora" : "Siguiente tienda") : "Lugar de compra"}
           onChange={(place) => {
             setStore(place);
             if (storeError) setStoreError("");
@@ -145,7 +149,11 @@ export function PrepareScreen() {
           onClick={() => {
             const place = store.trim();
             if (!place) {
-              setStoreError("Indica el lugar donde vas a realizar esta compra.");
+              setStoreError(
+                market
+                  ? "Indica la siguiente tienda donde vas a comprar."
+                  : "Indica el lugar donde vas a realizar esta compra.",
+              );
               return;
             }
             void startMarket(
@@ -159,25 +167,27 @@ export function PrepareScreen() {
             });
           }}
         >
-          Iniciar mercado
-          <Icon className="text-[20px]" name="shopping_cart_checkout" />
+          {market ? "Añadir" : "Iniciar mercado"}
+          <Icon className="text-[20px]" name={market ? "add" : "shopping_cart_checkout"} />
         </PrimaryButton>
       </div>
 
-      {creating ? (
-        <Modal onClose={() => setCreating(false)} title="Nuevo producto">
+      {creatingIn ? (
+        <Modal
+          onClose={() => setCreatingIn(null)}
+          title={`Agregar en ${getCategory(creatingIn).label}`}
+        >
           <ProductForm
-            onCancel={() => setCreating(false)}
+            key={creatingIn}
+            onCancel={() => setCreatingIn(null)}
             onSubmit={(draft) => {
               void addProduct(draft).then((id) => {
                 if (!id) return;
                 setQuantities((current) => ({ ...current, [id]: draft.habitualQuantity }));
-                if (!selectedIds.includes(id)) {
-                  toggleSelected(id);
-                }
-                setCreating(false);
+                setCreatingIn(null);
               });
             }}
+            presetCategory={creatingIn}
             submitLabel="Agregar y seleccionar"
           />
         </Modal>

@@ -7,13 +7,12 @@ export const CATEGORIES: Array<{
   shortLabel: string;
   icon: string;
 }> = [
-  { id: "frutas", label: "Frutas y verduras", shortLabel: "Frutas", icon: "nutrition" },
-  { id: "carnes", label: "Carnes y pescados", shortLabel: "Carnes", icon: "restaurant" },
+  { id: "carnes", label: "Carnes", shortLabel: "Carnes", icon: "restaurant" },
+  { id: "cuidado", label: "Aseo personal", shortLabel: "Aseo personal", icon: "spa" },
+  { id: "aseo", label: "Aseo del hogar", shortLabel: "Aseo hogar", icon: "cleaning_services" },
   { id: "lacteos", label: "Lácteos y huevos", shortLabel: "Lácteos", icon: "egg" },
+  { id: "frutas", label: "Frutas y verduras", shortLabel: "Frutas", icon: "nutrition" },
   { id: "despensa", label: "Despensa", shortLabel: "Despensa", icon: "kitchen" },
-  { id: "bebidas", label: "Bebidas", shortLabel: "Bebidas", icon: "local_cafe" },
-  { id: "aseo", label: "Aseo del hogar", shortLabel: "Aseo", icon: "cleaning_services" },
-  { id: "cuidado", label: "Cuidado personal", shortLabel: "Cuidado", icon: "spa" },
 ];
 
 export const UNITS: Array<{ id: UnitId; label: string }> = [
@@ -28,7 +27,14 @@ export const UNITS: Array<{ id: UnitId; label: string }> = [
 ];
 
 export function getCategory(id: CategoryId) {
-  return CATEGORIES.find((category) => category.id === id) ?? CATEGORIES[0];
+  return (
+    CATEGORIES.find((category) => category.id === id) ?? {
+      id,
+      label: id === "bebidas" ? "Bebidas" : "Otros",
+      shortLabel: id === "bebidas" ? "Bebidas" : "Otros",
+      icon: "grocery",
+    }
+  );
 }
 
 export function monthOption(key: string) {

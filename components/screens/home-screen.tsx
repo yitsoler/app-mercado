@@ -10,7 +10,8 @@ export function HomeScreen() {
   const { market, currentMonth, month } = useAppState();
   const summary = useMonthSummary(currentMonth || month);
   const pending = market?.items.filter((item) => !item.purchased).length ?? 0;
-  const prepareHref = market ? "/mercado" : "/preparar";
+  const finishedAtStore = Boolean(market && !market.store.trim());
+  const prepareHref = market ? (finishedAtStore ? "/preparar" : "/mercado") : "/preparar";
 
   return (
     <Screen padded={false}>
@@ -29,11 +30,15 @@ export function HomeScreen() {
         >
           <div>
             <p className="text-label-lg font-bold">
-              {market ? "Seguir la compra de hoy" : "Armar la compra de hoy"}
+              {market ? (finishedAtStore ? "Añadir" : "Continuar la compra") : "Armar la compra de hoy"}
             </p>
             <p className="text-label-sm text-on-primary/80">
               {market
-                ? `${pending} productos por marcar en ${market.store}`
+                ? finishedAtStore
+                  ? "Elige la siguiente tienda o finaliza el mercado"
+                  : pending > 0
+                    ? `${pending} productos por marcar${market.store ? ` en ${market.store}` : ""}`
+                    : `Estás en ${market.store}`
                 : "Elige productos de tu lista y empieza"}
             </p>
           </div>

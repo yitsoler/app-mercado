@@ -19,14 +19,21 @@ export function ListScreen() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<CategoryId | "todas">("todas");
   const [editing, setEditing] = useState<Product | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creatingIn, setCreatingIn] = useState<CategoryId | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Product | null>(null);
 
-  const filtered = useMemo(() => {
-    return products.filter((product) => {
-      const matchesQuery = product.name.toLowerCase().includes(query.toLowerCase());
-      const matchesCategory = category === "todas" || product.categoryId === category;
-      return matchesQuery && matchesCategory;
+  const groups = useMemo(() => {
+    const needle = query.toLowerCase();
+    return CATEGORIES.map((item) => ({
+      category: item,
+      items: products.filter((product) => {
+        const matchesQuery = product.name.toLowerCase().includes(needle);
+        return product.categoryId === item.id && matchesQuery;
+      }),
+    })).filter((group) => {
+      if (category !== "todas" && group.category.id !== category) return false;
+      if (query.trim()) return group.items.length > 0;
+      return true;
     });
   }, [category, products, query]);
 
@@ -49,11 +56,11 @@ export function ListScreen() {
             </div>
             <Link
               className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-primary px-3.5 text-label-md font-semibold text-on-primary shadow-lg"
-              href={market ? "/mercado" : "/preparar"}
+              href="/preparar"
             >
               <Icon className="text-[18px]" name={market ? "shopping_cart" : "shopping_cart_checkout"} />
               {market
-                ? "Ir a la compra de hoy"
+                ? "Añadir"
                 : `Armar mercado${selectedIds.length ? ` (${selectedIds.length})` : ""}`}
             </Link>
           </div>
@@ -65,26 +72,18 @@ export function ListScreen() {
               <Icon className="text-lg text-primary" filled name="checklist" />
             </div>
             <p className="text-body-sm leading-snug text-on-surface-variant">
-              Aquí guardas lo que compras siempre. No es la compra de hoy: marca lo que quieres
-              llevar y ármalo en Mi mercado.
+              Aquí guardas lo que compras siempre. Al guardar una tienda, lo comprado se desmarca
+              solo. Lo que falte sigue listo para otra.
             </p>
           </div>
         </section>
 
-        <section className="mb-4 space-y-3">
+        <section className="mb-4">
           <SearchField
             onChange={setQuery}
             placeholder="Buscar en tu lista permanente..."
             value={query}
           />
-          <button
-            className="flex h-[50px] w-full items-center justify-center gap-2 rounded-2xl border border-primary-fixed/20 bg-primary-container px-5 text-label-lg text-on-primary shadow-sm hover:bg-primary active:scale-[0.99]"
-            onClick={() => setCreating(true)}
-            type="button"
-          >
-            <Icon className="text-2xl" name="add" />
-            <span>Agregar producto</span>
-          </button>
         </section>
 
         <ChipScroller className="mb-4">
@@ -103,88 +102,118 @@ export function ListScreen() {
           ))}
         </ChipScroller>
 
-        <section className="flex flex-col gap-2.5 pb-8">
-          {filtered.length === 0 ? (
+        <section className="flex flex-col gap-6 pb-8">
+          {groups.length === 0 ? (
             <EmptyState
-              description="Prueba con otro término o agrega un producto a tu lista habitual."
+              description="Prueba con otro término o agrega un producto desde su categoría."
               icon="search_off"
               title="No hay productos para esta búsqueda"
             />
           ) : (
-            filtered.map((product) => {
-              const selected = selectedIds.includes(product.id);
-              const categoryInfo = getCategory(product.categoryId);
-              return (
-                <article
-                  className={`flex items-center justify-between rounded-2xl border p-3.5 shadow-[0_2px_8px_rgba(39,48,41,0.03)] ${
-                    selected
-                      ? "border-primary/25 bg-secondary-container/30"
-                      : "border-outline-variant/40 bg-surface-container-lowest"
-                  }`}
-                  key={product.id}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Checkbox
-                      checked={selected}
-                      label={`Incluir ${product.name} en el próximo mercado`}
-                      onChange={() => toggleSelected(product.id)}
-                    />
-                    <Link className="min-w-0" href={`/productos/${product.id}`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-body-md font-semibold text-on-surface">
-                          {product.name}
-                        </h3>
-                        <span className="rounded-full border border-outline-variant/20 bg-secondary-container/50 px-2 py-0.5 text-label-sm text-secondary">
-                          {categoryInfo.label}
-                        </span>
-                        {selected ? (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-label-sm font-semibold text-primary">
-                            Para el mercado
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-0.5 text-body-sm text-outline">
-                        Cantidad habitual:{" "}
-                        <span className="font-semibold text-primary">
-                          {formatQuantity(product.habitualQuantity, product.unit)}
-                        </span>
-                      </p>
-                    </Link>
+            groups.map((group) => (
+              <div className="flex flex-col gap-2.5" key={group.category.id}>
+                <div className="flex items-center justify-between gap-3 px-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Icon className="text-[20px] text-primary" name={group.category.icon} />
+                    <h2 className="truncate text-[16px] font-bold text-on-surface">
+                      {group.category.label}
+                    </h2>
+                    <span className="text-label-sm font-semibold text-outline">
+                      {group.items.length}
+                    </span>
                   </div>
-                  <div className="flex shrink-0 items-center gap-0.5 pl-2">
-                    <button
-                      aria-label={`Editar ${product.name}`}
-                      className="flex h-8 w-8 items-center justify-center rounded-xl text-outline hover:bg-surface-container-low hover:text-primary"
-                      onClick={() => setEditing(product)}
-                      type="button"
-                    >
-                      <Icon className="text-lg" name="edit" />
-                    </button>
-                    <button
-                      aria-label={`Eliminar ${product.name}`}
-                      className="flex h-8 w-8 items-center justify-center rounded-xl text-outline hover:bg-error-container/40 hover:text-error"
-                      onClick={() => setPendingDelete(product)}
-                      type="button"
-                    >
-                      <Icon className="text-lg" name="delete" />
-                    </button>
-                  </div>
-                </article>
-              );
-            })
+                  <button
+                    className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-label-md font-semibold text-on-primary"
+                    onClick={() => setCreatingIn(group.category.id)}
+                    type="button"
+                  >
+                    <Icon className="text-[18px]" name="add" />
+                    Agregar
+                  </button>
+                </div>
+                {group.items.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-outline-variant/50 px-4 py-3 text-body-sm text-on-surface-variant">
+                    Aún no hay productos en {group.category.label.toLowerCase()}.
+                  </p>
+                ) : (
+                  group.items.map((product) => {
+                    const selected = selectedIds.includes(product.id);
+                    return (
+                      <article
+                        className={`flex items-center justify-between rounded-2xl border p-3.5 shadow-[0_2px_8px_rgba(39,48,41,0.03)] ${
+                          selected
+                            ? "border-primary/25 bg-secondary-container/30"
+                            : "border-outline-variant/40 bg-surface-container-lowest"
+                        }`}
+                        key={product.id}
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Checkbox
+                            checked={selected}
+                            label={`Incluir ${product.name} en el próximo mercado`}
+                            onChange={() => toggleSelected(product.id)}
+                          />
+                          <Link className="min-w-0" href={`/productos/${product.id}`}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="truncate text-body-md font-semibold text-on-surface">
+                                {product.name}
+                              </h3>
+                              {selected ? (
+                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-label-sm font-semibold text-primary">
+                                  Para el mercado
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-body-sm text-outline">
+                              Cantidad habitual:{" "}
+                              <span className="font-semibold text-primary">
+                                {formatQuantity(product.habitualQuantity, product.unit)}
+                              </span>
+                            </p>
+                          </Link>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-0.5 pl-2">
+                          <button
+                            aria-label={`Editar ${product.name}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-outline hover:bg-surface-container-low hover:text-primary"
+                            onClick={() => setEditing(product)}
+                            type="button"
+                          >
+                            <Icon className="text-lg" name="edit" />
+                          </button>
+                          <button
+                            aria-label={`Eliminar ${product.name}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-outline hover:bg-error-container/40 hover:text-error"
+                            onClick={() => setPendingDelete(product)}
+                            type="button"
+                          >
+                            <Icon className="text-lg" name="delete" />
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            ))
           )}
         </section>
       </main>
 
-      {creating ? (
-        <Modal onClose={() => setCreating(false)} title="Agregar producto">
+      {creatingIn ? (
+        <Modal
+          onClose={() => setCreatingIn(null)}
+          title={`Agregar en ${getCategory(creatingIn).label}`}
+        >
           <ProductForm
-            onCancel={() => setCreating(false)}
+            key={creatingIn}
+            onCancel={() => setCreatingIn(null)}
             onSubmit={(draft) => {
               void addProduct(draft).then((id) => {
-                if (id) setCreating(false);
+                if (id) setCreatingIn(null);
               });
             }}
+            presetCategory={creatingIn}
             submitLabel="Guardar producto"
           />
         </Modal>

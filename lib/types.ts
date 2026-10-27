@@ -52,27 +52,43 @@ export type MarketStatus = "idle" | "active" | "completed";
 
 export type ActiveMarket = {
   id: string;
+  tripId: string;
   store: string;
   date: string;
   status: MarketStatus;
   items: MarketItem[];
 };
 
+export type HistoryMarketItem = {
+  productId: string;
+  name: string;
+  quantity: number;
+  unit: UnitId;
+  total: number;
+};
+
 export type HistoryMarket = {
   id: string;
+  tripId: string;
   store: string;
   date: string;
   payment: string;
   ticket?: string;
-  items: Array<{
-    productId: string;
-    name: string;
-    quantity: number;
-    unit: UnitId;
-    total: number;
-  }>;
+  items: HistoryMarketItem[];
   extraItemsCount: number;
   extraItemsTotal: number;
+};
+
+export type HistoryTripStore = {
+  store: string;
+  items: HistoryMarketItem[];
+  total: number;
+};
+
+export type HistoryTrip = {
+  id: string;
+  date: string;
+  visits: HistoryMarket[];
 };
 
 export type MonthlySnapshot = {

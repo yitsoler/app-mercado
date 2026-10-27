@@ -138,13 +138,13 @@ export async function persistStartMarket(
   items: Array<{ productId: string; quantity: number; name: string; unit: string; unitPrice: number }>,
   store: Store | { id: string | null; name: string },
   previousMarketId?: string | null,
-): Promise<{ id: string; date: string; items: MarketItem[] }> {
+): Promise<{ id: string; tripId: string; date: string; items: MarketItem[] }> {
   const supabase = getSupabase();
   const householdId = await requireHouseholdId();
   if (previousMarketId) {
-    const removed = await supabase.from("markets").delete().eq("id", previousMarketId);
-    throwIf(removed.error);
+    throwIf((await supabase.from("markets").delete().eq("id", previousMarketId)).error);
   }
+  const tripId = crypto.randomUUID();
 
   const { data: market, error } = await supabase
     .from("markets")
@@ -154,8 +154,9 @@ export async function persistStartMarket(
       store_name: store.name,
       market_date: todayKey(),
       status: "active",
+      trip_id: tripId,
     })
-    .select("id, market_date")
+    .select("id, market_date, trip_id")
     .single();
   throwIf(error);
   if (!market) throw new Error("No se pudo iniciar el mercado");
@@ -179,6 +180,7 @@ export async function persistStartMarket(
 
   return {
     id: market.id,
+    tripId: market.trip_id || tripId,
     date: market.market_date,
     items: (rows ?? []).map((row) => ({
       id: row.id,
@@ -190,11 +192,52 @@ export async function persistStartMarket(
   };
 }
 
-export async function persistFinishMarket(input: {
-  marketId: string;
-  store: string;
+export async function persistAddMarketItems(
+  marketId: string,
+  items: Array<{ productId: string; quantity: number; name: string; unit: string; unitPrice: number }>,
+): Promise<MarketItem[]> {
+  if (items.length === 0) return [];
+  const supabase = getSupabase();
+  const householdId = await requireHouseholdId();
+  const { data: rows, error } = await supabase
+    .from("market_items")
+    .insert(
+      items.map((item) => ({
+        household_id: householdId,
+        market_id: marketId,
+        product_id: item.productId,
+        product_name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        unit_price: item.unitPrice,
+        purchased: false,
+      })),
+    )
+    .select("id, product_id, quantity, unit_price, purchased");
+  throwIf(error);
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    productId: row.product_id ?? "",
+    quantity: Number(row.quantity),
+    unitPrice: row.unit_price,
+    purchased: row.purchased,
+  }));
+}
+
+export async function persistEndMarket(marketId: string) {
+  const supabase = getSupabase();
+  throwIf((await supabase.from("market_items").delete().eq("market_id", marketId)).error);
+  throwIf((await supabase.from("markets").delete().eq("id", marketId)).error);
+}
+
+export async function persistSaveStoreVisit(input: {
+  activeMarketId: string;
+  tripId: string;
+  storeId: string;
+  storeName: string;
   date: string;
   purchased: Array<{
+    id: string;
     productId: string;
     name: string;
     quantity: number;
@@ -204,54 +247,87 @@ export async function persistFinishMarket(input: {
 }): Promise<HistoryMarket> {
   const supabase = getSupabase();
   const householdId = await requireHouseholdId();
-  const market = await supabase
+  const bought = input.purchased.filter((item) => item.productId);
+  const tripId = input.tripId || crypto.randomUUID();
+  const { data: completed, error: createError } = await supabase
     .from("markets")
-    .update({ status: "completed", payment: "Registro" })
-    .eq("id", input.marketId);
-  throwIf(market.error);
-
-  const historyRows = input.purchased
-    .filter((item) => item.productId)
-    .map((item) => ({
+    .insert({
       household_id: householdId,
-      product_id: item.productId,
-      purchased_on: input.date,
-      store_name: input.store,
-      quantity: item.quantity,
-      unit_price: Math.round(item.total / Math.max(item.quantity, 1)),
-      total: item.total,
-    }));
+      store_id: input.storeId,
+      store_name: input.storeName,
+      market_date: input.date,
+      status: "completed",
+      payment: "Registro",
+      trip_id: tripId,
+    })
+    .select("id")
+    .single();
+  throwIf(createError);
+  if (!completed) throw new Error("No se pudo guardar la compra de esta tienda");
+
+  const moved = await supabase
+    .from("market_items")
+    .update({ market_id: completed.id, purchased: true })
+    .in(
+      "id",
+      bought.map((item) => item.id),
+    );
+  throwIf(moved.error);
+
+  const historyRows = bought.map((item) => ({
+    household_id: householdId,
+    product_id: item.productId,
+    purchased_on: input.date,
+    store_name: input.storeName,
+    quantity: item.quantity,
+    unit_price: Math.round(item.total / Math.max(item.quantity, 1)),
+    total: item.total,
+  }));
 
   const writes = [
     historyRows.length > 0
       ? supabase.from("price_history").insert(historyRows)
       : Promise.resolve({ error: null }),
-    ...input.purchased
-      .filter((item) => item.productId)
-      .map((item) =>
-        supabase
-          .from("products")
-          .update({
-            last_price: item.total,
-            last_purchased_at: input.date,
-            last_store: input.store,
-          })
-          .eq("id", item.productId),
-      ),
+    ...bought.map((item) =>
+      supabase
+        .from("products")
+        .update({
+          last_price: item.total,
+          last_purchased_at: input.date,
+          last_store: input.storeName,
+          selected: false,
+        })
+        .eq("id", item.productId),
+    ),
   ];
-
   const results = await Promise.all(writes);
   for (const result of results) {
     throwIf(result.error);
   }
 
+  throwIf(
+    (
+      await supabase
+        .from("markets")
+          .update({ store_id: null, store_name: "", trip_id: tripId })
+          .eq("id", input.activeMarketId)
+    ).error,
+  );
+
   return {
-    id: input.marketId,
-    store: input.store,
+    id: completed.id,
+    tripId,
+    store: input.storeName,
     date: input.date,
     payment: "Registro",
     extraItemsCount: 0,
     extraItemsTotal: 0,
-    items: input.purchased,
+    items: bought.map((item) => ({
+      productId: item.productId,
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      total: item.total,
+    })),
   };
 }
