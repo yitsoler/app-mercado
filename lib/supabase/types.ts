@@ -88,6 +88,7 @@ export type Database = {
           unit_price?: number;
         };
         Update: {
+          market_id?: string;
           purchased?: boolean;
           quantity?: number;
           unit_price?: number;
